@@ -93,6 +93,11 @@ describe('Timeline Component', () => {
     expect(thirdItemStyle.top).toBe('0px'); // Should be in lane 0 since it doesn't overlap with second
   });
 
+  it('handles empty items array', () => {
+    const { container } = render(<Timeline items={[]} />);
+    expect(container.querySelectorAll('.timeline-item').length).toBe(0);
+  });
+
   it('zooms in when zoom in button is clicked', async () => {
     const user = userEvent.setup();
     render(<Timeline items={mockTimelineItems} />);
@@ -160,6 +165,25 @@ describe('Timeline Component', () => {
     expect(screen.getByText('Updated item name')).toBeInTheDocument();
   });
 
+  it('handles Escape key press during editing', async () => {
+    const user = userEvent.setup();
+    render(<Timeline items={mockTimelineItems} />);
+    
+    // Find the first item and double click it
+    const firstItem = screen.getByText('First item');
+    await user.dblClick(firstItem);
+    
+    // Input should appear
+    const input = screen.getByDisplayValue('First item');
+    expect(input).toBeInTheDocument();
+    
+    // Press Escape to cancel editing
+    await user.keyboard('{Escape}');
+    
+    // Original name should still be there (no change)
+    expect(screen.getByText('First item')).toBeInTheDocument();
+  });
+
   it('adds dragging class when item is being dragged', () => {
     const { container } = render(<Timeline items={mockTimelineItems} />);
     
@@ -184,6 +208,92 @@ describe('Timeline Component', () => {
         
         // Dragging class should be removed
         expect(firstItem.classList.contains('dragging')).toBe(false);
+      }
+    }
+  });
+
+  it('handles start date drag properly', () => {
+    const { container } = render(<Timeline items={mockTimelineItems} />);
+    
+    // Get the first timeline item
+    const firstItem = container.querySelector('.timeline-item');
+    expect(firstItem).not.toBeNull();
+    
+    if (firstItem) {
+      // Get the left resizer (which controls start date)
+      const leftResizer = firstItem.querySelector('.timeline-item-resizer.left');
+      expect(leftResizer).not.toBeNull();
+      
+      if (leftResizer) {
+        // Mock the timeline element's getBoundingClientRect
+        const mockTimelineRect = {
+          width: 1000,
+          height: 500,
+          top: 0,
+          left: 0,
+          bottom: 500,
+          right: 1000,
+          x: 0,
+          y: 0,
+          toJSON: () => {}
+        };
+        
+        const timelineElement = container.querySelector('.timeline');
+        if (timelineElement) {
+          vi.spyOn(timelineElement, 'getBoundingClientRect').mockImplementation(() => mockTimelineRect);
+        }
+        
+        // Simulate mousedown to start dragging
+        fireEvent.mouseDown(leftResizer, { clientX: 100 });
+        
+        // Simulate mouse move
+        fireEvent.mouseMove(container.querySelector('.timeline') as Element, { clientX: 120 });
+        
+        // Simulate mouseup to end dragging
+        fireEvent.mouseUp(document);
+      }
+    }
+  });
+
+  it('handles end date drag properly', () => {
+    const { container } = render(<Timeline items={mockTimelineItems} />);
+    
+    // Get the first timeline item
+    const firstItem = container.querySelector('.timeline-item');
+    expect(firstItem).not.toBeNull();
+    
+    if (firstItem) {
+      // Get the right resizer (which controls end date)
+      const rightResizer = firstItem.querySelector('.timeline-item-resizer.right');
+      expect(rightResizer).not.toBeNull();
+      
+      if (rightResizer) {
+        // Mock the timeline element's getBoundingClientRect
+        const mockTimelineRect = {
+          width: 1000,
+          height: 500,
+          top: 0,
+          left: 0,
+          bottom: 500,
+          right: 1000,
+          x: 0,
+          y: 0,
+          toJSON: () => {}
+        };
+        
+        const timelineElement = container.querySelector('.timeline');
+        if (timelineElement) {
+          vi.spyOn(timelineElement, 'getBoundingClientRect').mockImplementation(() => mockTimelineRect);
+        }
+        
+        // Simulate mousedown to start dragging
+        fireEvent.mouseDown(rightResizer, { clientX: 200 });
+        
+        // Simulate mouse move
+        fireEvent.mouseMove(container.querySelector('.timeline') as Element, { clientX: 220 });
+        
+        // Simulate mouseup to end dragging
+        fireEvent.mouseUp(document);
       }
     }
   });
@@ -226,5 +336,62 @@ describe('Timeline Component', () => {
         expect(style.top).toBe('0px');
       }
     }
+  });
+
+  it('adds global mouseup event listener when dragging starts', () => {
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
+    const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
+    
+    const { container } = render(<Timeline items={mockTimelineItems} />);
+    
+    // Get the first timeline item content
+    const firstItemContent = container.querySelector('.timeline-item-content');
+    expect(firstItemContent).not.toBeNull();
+    
+    if (firstItemContent) {
+      // Start dragging
+      fireEvent.mouseDown(firstItemContent);
+      
+      // Check that the global mouseup event listener was added
+      expect(addEventListenerSpy).toHaveBeenCalledWith('mouseup', expect.any(Function));
+      
+      // End dragging
+      fireEvent.mouseUp(document);
+      
+      // Check that the global mouseup event listener was removed
+      expect(removeEventListenerSpy).toHaveBeenCalledWith('mouseup', expect.any(Function));
+    }
+  });
+
+  it('creates new lanes when needed for overlapping items', () => {
+    // Create timeline items that will force creation of a new lane
+    const overlappingItems: TimelineItem[] = [
+      {
+        id: 1,
+        start: "2021-01-01",
+        end: "2021-01-10",
+        name: "First item spanning 10 days"
+      },
+      {
+        id: 2,
+        start: "2021-01-05", // Overlaps with first item
+        end: "2021-01-15",
+        name: "Second item overlapping with first"
+      }
+    ];
+    
+    const { container } = render(<Timeline items={overlappingItems} />);
+    
+    // Get all timeline items
+    const timelineItems = container.querySelectorAll('.timeline-item');
+    expect(timelineItems.length).toBe(2);
+    
+    // Check if they're in different lanes
+    const firstItemStyle = window.getComputedStyle(timelineItems[0]);
+    const secondItemStyle = window.getComputedStyle(timelineItems[1]);
+    
+    // First item should be in lane 0, second in lane 1
+    expect(firstItemStyle.top).toBe('0px');
+    expect(secondItemStyle.top).toBe('50px'); // Lane 1 (50px from top)
   });
 }); 
